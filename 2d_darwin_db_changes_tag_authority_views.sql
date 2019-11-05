@@ -69,20 +69,35 @@ SELECT DISTINCT
     case when tcat_gn.gazetteer_type_mapped = 'PCLI' then countries.country_code_gn else ta.code end AS gazetteer_code,
     case when tcat_gn.gazetteer_type_mapped = 'PCLI' then countries.country_url_gn else ta.url end AS gazetteer_url,
     ta.pref_label AS gazetteer_pref_label,
-    cast (case when tcat_gn.gazetteer_type_mapped = 'PCLI' then countries.country_coord->>'latitude_wgs_84' else props_lat.lower_value end as NUMERIC) as latitude,
+    cast (case when tcat_gn.gazetteer_type_mapped = 'PCLI' then countries.country_coord->>'latitude_wgs_84' else coordinates.lower_value end as NUMERIC) as latitude,
     cast (case when tcat_gn.gazetteer_type_mapped = 'PCLI' then countries.country_coord->>'longitude_wgs_84' else props_lon.lower_value end as NUMERIC) as longitude,
     countries.country_iso,
     countries.country_pref_label_gn as country_pref_label
-   FROM darwin2.gtu
-     RIGHT JOIN darwin2.tag_groups t ON gtu.id = t.gtu_ref
-     --RIGHT JOIN darwin2.tag_group_distinct td ON t.tag_value::text = td.tag_value::text AND td.sub_group_name_indexed::text = t.sub_group_name_indexed::text AND td.group_name_indexed::text = t.group_name_indexed::text AND td.sub_group_name_indexed::text <> 'country'::text
+   FROM darwin2.tag_groups t
+     LEFT JOIN darwin2.gtu ON  t.gtu_ref=gtu.id 
+    
      LEFT JOIN darwin2.tag_tag_authority tta ON tta.tag_group_distinct_ref = t.tag_group_distinct_ref and t.sub_group_name_indexed::text <> 'country'::text
      LEFT JOIN darwin2.tag_authority ta ON tta.tag_authority_ref = ta.id
      LEFT JOIN darwin2.tag_groups_authority_categories tcat_gn on tcat_gn.original_type = t.group_name_indexed and tcat_gn.original_sub_type = t.sub_group_name_indexed and tcat_gn.authority = 'geonames.org'--get the priority of the original terms
      LEFT JOIN darwin2.tag_groups_authority_categories tcat_mrg on tcat_mrg.original_type = t.group_name_indexed and tcat_mrg.original_sub_type = t.sub_group_name_indexed and tcat_mrg.authority = 'marineregions.org' --get the priority of the original terms
-     --LEFT JOIN darwin2.tag_groups_authority_categories tcat_gzterms on tcat.gazetteer_type_mapped = ta.type[1]  --get the priority of the mapped terms
-     LEFT JOIN darwin2.properties props_lat on props_lat.record_id = ta.id and props_lat.referenced_relation='tag_authority' and props_lat.property_type='latitude_wgs_84'
-     LEFT JOIN darwin2.properties props_lon on props_lon.record_id = ta.id and props_lon.referenced_relation='tag_authority' and props_lon.property_type='longitude_wgs_84'
+    
+     LEFT JOIN (
+            SELECT
+            distinct
+            record_id, jsonb_object_agg(property_type, lower_value)
+
+            FROM darwin2.properties props_lat
+            WHERE props_lat.referenced_relation='tag_authority' and 
+            (props_lat.property_type='latitude_wgs_84'
+
+            OR
+             props_lat.property_type='longitude_wgs_84'
+            )
+            group by record_id
+            )
+
+            AS
+            prop_coordinates
      LEFT JOIN (select distinct gtu_ref, tag_group_distinct_ref, country_iso, country_pref_label_gn, country_code_gn, country_url_gn,country_coord 
      from ipt.mv_tag_to_country) countries ON countries.gtu_ref = t.gtu_ref
      ORDER BY t.tag_value
